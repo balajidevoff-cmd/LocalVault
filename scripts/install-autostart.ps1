@@ -25,12 +25,18 @@ if (-not (Test-Path $StartupScript)) {
     exit 1
 }
 
-$scriptArgs = "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$StartupScript`""
-if ($QuickTunnel) {
-    $scriptArgs += " -QuickTunnel"
+$VbsLauncher = Join-Path $PSScriptRoot "run-hidden.vbs"
+if (-not (Test-Path $VbsLauncher)) {
+    Write-Error "Launcher script not found at: $VbsLauncher"
+    exit 1
 }
 
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $scriptArgs -WorkingDirectory $RootDir
+$vbsArgs = "`"$VbsLauncher`""
+if ($QuickTunnel) {
+    $vbsArgs += " -QuickTunnel"
+}
+
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $vbsArgs -WorkingDirectory $RootDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 
 # Task settings: do not stop on battery, restart on failure, unlimited execution time
