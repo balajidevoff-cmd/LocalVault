@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { User, HealthResponse } from '@/types';
-import { api } from '@/lib/api';
+import { api, TestConnectionResult } from '@/lib/api';
 
 export type ServerStatus = 'checking' | 'connected' | 'unreachable' | 'unconfigured';
 
@@ -13,6 +13,8 @@ interface AuthContextType {
   firstRunRequired: boolean;
   serverStatus: ServerStatus;
   serverUrl: string;
+  testAndSaveServerUrl: (candidateUrl: string) => Promise<TestConnectionResult>;
+  resetServerUrl: () => Promise<void>;
   setServerUrl: (url: string | null) => Promise<boolean>;
   recheckConnection: () => Promise<void>;
   darkMode: boolean;
@@ -66,6 +68,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const currentUrl = api.getBaseUrl();
     setServerUrlState(currentUrl);
 
+    if (!currentUrl) {
+      setServerStatus('unconfigured');
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       const health = await api.checkHealth();
       setServerStatus('connected');
@@ -114,22 +123,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  /**
+   * Tests candidate URL against /health first.
+   * Only saves to localStorage if the health check passes with HTTP 200.
+   */
+  const testAndSaveServerUrl = useCallback(
+    async (candidateUrl: string): Promise<TestConnectionResult> => {
+      const result = await api.testServerUrl(candidateUrl);
+      if (result.success && result.normalizedUrl) {
+        api.setServerUrl(result.normalizedUrl);
+        setServerUrlState(result.normalizedUrl);
+        setServerStatus('connected');
+        if (result.data?.first_run_setup_required) {
+          setFirstRunRequired(true);
+        } else {
+          setFirstRunRequired(false);
+        }
+        await refreshUser();
+      }
+      return result;
+    },
+    [refreshUser]
+  );
+
+  const resetServerUrl = useCallback(async () => {
+    api.setServerUrl(null);
+    const defaultUrl = api.getBaseUrl();
+    setServerUrlState(defaultUrl);
+    await initAuth();
+  }, [initAuth]);
+
   const setServerUrl = useCallback(
     async (url: string | null): Promise<boolean> => {
-      api.setServerUrl(url);
-      const newUrl = api.getBaseUrl();
-      setServerUrlState(newUrl);
-      try {
-        await api.checkHealth();
-        setServerStatus('connected');
-        await initAuth();
+      if (url) {
+        const res = await testAndSaveServerUrl(url);
+        return res.success;
+      } else {
+        await resetServerUrl();
         return true;
-      } catch {
-        setServerStatus('unreachable');
-        return false;
       }
     },
-    [initAuth]
+    [testAndSaveServerUrl, resetServerUrl]
   );
 
   const recheckConnection = useCallback(async () => {
@@ -176,6 +210,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         firstRunRequired,
         serverStatus,
         serverUrl,
+        testAndSaveServerUrl,
+        resetServerUrl,
         setServerUrl,
         recheckConnection,
         darkMode,

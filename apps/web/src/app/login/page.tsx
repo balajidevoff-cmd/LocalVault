@@ -28,7 +28,8 @@ export default function LoginPage() {
     loading,
     serverStatus,
     serverUrl,
-    setServerUrl,
+    testAndSaveServerUrl,
+    resetServerUrl,
     recheckConnection,
   } = useAuth();
 
@@ -64,28 +65,32 @@ export default function LoginPage() {
     setConfigError(null);
     setConfigSuccess(null);
 
-    const targetUrl = customUrlInput.trim();
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && targetUrl.startsWith('http://')) {
-      setConfigError('Mixed Content: This site is HTTPS. Modern browsers block HTTP API connections. Please use an HTTPS tunnel URL.');
-      setTestingConnection(false);
-      return;
-    }
-
-    const ok = await setServerUrl(targetUrl);
+    const result = await testAndSaveServerUrl(customUrlInput);
     setTestingConnection(false);
 
-    if (ok) {
-      setConfigSuccess('Successfully connected to LocalVault server!');
-      success('Connected to backend server');
+    if (result.success) {
+      const msg = `HTTP ${result.status} OK — Connected to LocalVault v${result.data?.version || '0.1.0'} (${result.data?.database || 'connected'})`;
+      setConfigSuccess(msg);
+      success(msg);
       setTimeout(() => {
         setShowServerConfig(false);
         setConfigSuccess(null);
-      }, 1200);
+      }, 2000);
     } else {
-      setConfigError(
-        'Could not reach server at this URL. Make sure FastAPI is running on your laptop and your HTTPS tunnel is active.'
-      );
+      const errMsg = result.error || 'Connection failed';
+      setConfigError(errMsg);
+      error(errMsg);
     }
+  };
+
+  const handleResetServerUrl = async () => {
+    setTestingConnection(true);
+    setConfigError(null);
+    setConfigSuccess(null);
+    await resetServerUrl();
+    setCustomUrlInput('');
+    setTestingConnection(false);
+    success('Reset server URL to defaults');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -147,7 +152,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-400">
               <div className="flex items-center gap-2 truncate">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span className="truncate font-medium">Server Connected</span>
+                <span className="truncate font-medium">Server Connected ({serverUrl || '/api/v1'})</span>
               </div>
               <button
                 type="button"
@@ -175,8 +180,8 @@ export default function LoginPage() {
                     </span>
                     <span className="text-[11px] leading-relaxed text-amber-700/90 dark:text-amber-300/90">
                       {serverStatus === 'unconfigured'
-                        ? 'Set NEXT_PUBLIC_API_URL in Vercel or configure your HTTPS tunnel URL below.'
-                        : 'Cannot reach your laptop backend. Ensure FastAPI and your tunnel are running.'}
+                        ? 'Vercel cannot reach your laptop SSD backend automatically. Enter your secure HTTPS tunnel URL below.'
+                        : `Unable to connect to ${serverUrl || '/api/v1/health'}. Ensure FastAPI and your HTTPS tunnel are running.`}
                     </span>
                   </div>
                 </div>
@@ -196,7 +201,7 @@ export default function LoginPage() {
         {showServerConfig && (
           <form
             onSubmit={handleSaveServerUrl}
-            className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3"
+            className="mb-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3 animate-in fade-in"
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
@@ -217,27 +222,28 @@ export default function LoginPage() {
 
             <div>
               <input
+                id="server-url-input"
                 type="text"
                 value={customUrlInput}
                 onChange={(e) => setCustomUrlInput(e.target.value)}
-                placeholder="https://your-tunnel.trycloudflare.com/api/v1"
+                placeholder="https://<subdomain>.trycloudflare.com/api/v1"
                 className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:border-vault-500 outline-none font-mono"
               />
               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 leading-normal">
-                Enter your secure Cloudflare Tunnel, Tailscale Funnel, or reverse-proxy HTTPS URL. Defaults to{' '}
-                <code className="text-vault-600 dark:text-vault-400">/api/v1</code> for local development.
+                Active target: <strong className="text-slate-700 dark:text-slate-300 font-mono">{serverUrl || 'None (unconfigured)'}</strong>.
+                Enter your live Cloudflare Tunnel, Tailscale Funnel, or reverse-proxy HTTPS URL.
               </p>
             </div>
 
             {configError && (
-              <div className="text-[11px] text-red-600 dark:text-red-400 leading-snug">
+              <div id="server-config-error" className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-700 dark:text-rose-300 leading-snug">
                 {configError}
               </div>
             )}
 
             {configSuccess && (
-              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+              <div id="server-config-success" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 <span>{configSuccess}</span>
               </div>
             )}
@@ -245,23 +251,22 @@ export default function LoginPage() {
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => {
-                  setServerUrl(null);
-                  setCustomUrlInput('/api/v1');
-                }}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                onClick={handleResetServerUrl}
+                disabled={testingConnection}
+                className="px-2.5 py-1.5 rounded-lg text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 disabled:opacity-50"
               >
                 Reset Default
               </button>
               <button
+                id="test-save-server-btn"
                 type="submit"
                 disabled={testingConnection}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-medium text-xs shadow-md shadow-vault-600/20 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-medium text-xs shadow-md shadow-vault-600/20 disabled:opacity-50 transition-all"
               >
                 {testingConnection ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Connecting...</span>
+                    <span>Testing /health...</span>
                   </>
                 ) : (
                   <span>Test & Save</span>

@@ -15,13 +15,65 @@ export const STORAGE_KEY_API_URL = 'localvault_api_url';
 export const STORAGE_KEY_ACCESS_TOKEN = 'localvault_token';
 export const STORAGE_KEY_REFRESH_TOKEN = 'localvault_refresh_token';
 
+/**
+ * Normalizes user-provided or environment API URLs.
+ * Handles trailing slashes, redundant /health or /api paths, and missing protocols.
+ * Filters out example placeholder strings (e.g. your-tunnel.trycloudflare.com).
+ */
+export function normalizeApiUrl(raw: string): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let trimmed = raw.trim();
+
+  // Ignore dummy placeholder strings
+  if (
+    trimmed === '' ||
+    trimmed.includes('your-tunnel') ||
+    trimmed.includes('example.com') ||
+    trimmed.includes('<your-') ||
+    trimmed.includes('YOUR_TUNNEL')
+  ) {
+    return '';
+  }
+
+  // Preserve relative local development route
+  if (trimmed === '/api/v1' || trimmed === '/api/v1/') {
+    return '/api/v1';
+  }
+
+  // Prepend protocol if user omitted it
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('/')) {
+    const isHttps = typeof window !== 'undefined' ? window.location.protocol === 'https:' : true;
+    trimmed = (isHttps ? 'https://' : 'http://') + trimmed;
+  }
+
+  // Strip trailing slashes
+  trimmed = trimmed.replace(/\/+$/, '');
+
+  // Strip trailing /health if user pasted the full health check URL
+  if (trimmed.endsWith('/health')) {
+    trimmed = trimmed.slice(0, -'/health'.length).replace(/\/+$/, '');
+  }
+
+  // Ensure consistent /api/v1 path
+  if (!trimmed.endsWith('/api/v1')) {
+    if (trimmed.endsWith('/api')) {
+      trimmed = `${trimmed}/v1`;
+    } else {
+      trimmed = `${trimmed}/api/v1`;
+    }
+  }
+
+  return trimmed;
+}
+
 export function resolveApiBase(): string {
   // 1. In browser, check user override in localStorage
   if (typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_API_URL);
       if (stored && stored.trim() !== '') {
-        return normalizeApiUrl(stored);
+        const normalized = normalizeApiUrl(stored);
+        if (normalized) return normalized;
       }
     } catch {
       // Storage access blocked or restricted
@@ -31,7 +83,8 @@ export function resolveApiBase(): string {
   // 2. Next.js public environment variable (configured in Vercel or .env)
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (envUrl && envUrl.trim() !== '') {
-    return normalizeApiUrl(envUrl);
+    const normalized = normalizeApiUrl(envUrl);
+    if (normalized) return normalized;
   }
 
   // 3. Fallback: on localhost / 127.0.0.1 development, use relative /api/v1 (proxied by Next.js rewrites)
@@ -44,21 +97,21 @@ export function resolveApiBase(): string {
       return '/api/v1';
     }
     // Remote host without configured API URL
-    return '/api/v1';
+    return '';
   }
 
   return '/api/v1';
 }
 
-function normalizeApiUrl(raw: string): string {
-  let trimmed = raw.trim().replace(/\/+$/, '');
-  if ((trimmed.startsWith('http://') || trimmed.startsWith('https://')) && !trimmed.endsWith('/api/v1')) {
-    trimmed = `${trimmed}/api/v1`;
-  }
-  return trimmed;
-}
-
 export const API_BASE = resolveApiBase();
+
+export interface TestConnectionResult {
+  success: boolean;
+  status?: number;
+  data?: HealthResponse;
+  error?: string;
+  normalizedUrl?: string;
+}
 
 class ApiClient {
   private token: string | null = null;
@@ -81,7 +134,12 @@ class ApiClient {
   setServerUrl(url: string | null) {
     if (typeof window !== 'undefined') {
       if (url && url.trim() !== '') {
-        localStorage.setItem(STORAGE_KEY_API_URL, normalizeApiUrl(url));
+        const clean = normalizeApiUrl(url);
+        if (clean) {
+          localStorage.setItem(STORAGE_KEY_API_URL, clean);
+        } else {
+          localStorage.removeItem(STORAGE_KEY_API_URL);
+        }
       } else {
         localStorage.removeItem(STORAGE_KEY_API_URL);
       }
@@ -137,6 +195,102 @@ class ApiClient {
     return null;
   }
 
+  /**
+   * Performs an active health check test against a candidate backend URL.
+   * Does NOT alter localStorage unless verified by the caller.
+   */
+  async testServerUrl(candidateUrl: string): Promise<TestConnectionResult> {
+    const trimmed = candidateUrl.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Please enter a backend server URL.' };
+    }
+
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && trimmed.startsWith('http://')) {
+      return {
+        success: false,
+        error: `Mixed Content Error: This frontend is loaded securely over HTTPS (${window.location.origin}). Web browsers strictly block HTTP requests from HTTPS sites. Your tunnel or server URL must use HTTPS (e.g., https://...).`,
+      };
+    }
+
+    const clean = normalizeApiUrl(trimmed);
+    if (!clean) {
+      return {
+        success: false,
+        error: 'Please enter a valid, active server URL (e.g. https://<subdomain>.trycloudflare.com).',
+      };
+    }
+
+    const targetUrl = `${clean}/health`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+      const res = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.status === 200) {
+        try {
+          const data = (await res.json()) as HealthResponse;
+          if (data && typeof data === 'object' && data.status) {
+            return {
+              success: true,
+              status: 200,
+              data,
+              normalizedUrl: clean,
+            };
+          }
+        } catch {
+          return {
+            success: false,
+            status: 200,
+            error: `HTTP 200 received from ${targetUrl}, but response was not valid JSON. Ensure port 8000 is running the FastAPI LocalVault backend.`,
+          };
+        }
+      }
+
+      // Non-200 status response
+      let detail = '';
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.detail) {
+          detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+        }
+      } catch {
+        try {
+          detail = await res.text();
+        } catch {}
+      }
+
+      return {
+        success: false,
+        status: res.status,
+        error: `Server returned HTTP ${res.status} (${res.statusText || 'Error'})${detail ? `: ${detail}` : ''}`,
+      };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return {
+          success: false,
+          error: `Connection timed out after 9 seconds trying to reach ${targetUrl}. Verify that your laptop is awake, FastAPI is running on port 8000, and your tunnel is active.`,
+        };
+      }
+
+      const msg = err?.message || String(err);
+      return {
+        success: false,
+        error: `Network Error connecting to ${targetUrl}: ${msg}. Verify your tunnel URL, DNS resolution, and ensure backend CORS allows ${typeof window !== 'undefined' ? window.location.origin : 'your frontend origin'}.`,
+      };
+    }
+  }
+
   async refreshAccessToken(): Promise<boolean> {
     const refreshToken = this.getRefreshToken();
     if (!refreshToken || this.isRefreshing) {
@@ -145,6 +299,10 @@ class ApiClient {
     this.isRefreshing = true;
     try {
       const baseUrl = this.getBaseUrl();
+      if (!baseUrl) {
+        this.isRefreshing = false;
+        return false;
+      }
       const res = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
         headers: {
@@ -177,7 +335,7 @@ class ApiClient {
         window.location.hostname === '127.0.0.1' ||
         window.location.hostname === '::1';
 
-      if (!isLocalhost && baseUrl === '/api/v1') {
+      if (!baseUrl || (!isLocalhost && baseUrl === '/api/v1')) {
         throw new Error(
           'LocalVault backend URL is not configured. When running on Vercel, please set NEXT_PUBLIC_API_URL in your Vercel Project Settings (e.g. https://your-tunnel.example.com/api/v1) or enter your Server URL in the connection settings.'
         );
@@ -223,7 +381,13 @@ class ApiClient {
     }
 
     // Automatic token refresh on 401 Unauthorized
-    if (res.status === 401 && !options._isRetry && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh') && !endpoint.includes('/auth/register')) {
+    if (
+      res.status === 401 &&
+      !options._isRetry &&
+      !endpoint.includes('/auth/login') &&
+      !endpoint.includes('/auth/refresh') &&
+      !endpoint.includes('/auth/register')
+    ) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
         return this.request<T>(endpoint, { ...options, _isRetry: true });
