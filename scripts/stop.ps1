@@ -39,6 +39,14 @@ if ($port8000) {
     }
 }
 
+# Stop Cloudflare Tunnel processes
+$cfProcesses = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*cloudflared*tunnel*" }
+foreach ($p in $cfProcesses) {
+    Write-Host "Stopping Cloudflare Tunnel process (PID $($p.ProcessId))..." -ForegroundColor Cyan
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+    $stoppedAny = $true
+}
+
 if ($stoppedAny) {
     Write-Host "LocalVault services stopped successfully." -ForegroundColor Green
 } else {

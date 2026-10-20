@@ -76,22 +76,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const health = await api.checkHealth();
-      setServerStatus('connected');
-      if (health.first_run_setup_required) {
-        setFirstRunRequired(true);
+      const hasToken = Boolean(api.getToken());
+      const healthPromise = api.checkHealth();
+      const mePromise = hasToken ? api.getMe() : Promise.resolve(null);
+
+      const [healthResult, meResult] = await Promise.allSettled([healthPromise, mePromise]);
+
+      if (healthResult.status === 'fulfilled') {
+        const health = healthResult.value;
+        setServerStatus('connected');
+        setFirstRunRequired(Boolean(health.first_run_setup_required));
       } else {
-        setFirstRunRequired(false);
+        throw healthResult.reason;
       }
 
-      // Check current user session if token exists
-      if (api.getToken()) {
-        try {
-          const me = await api.getMe();
-          setUser(me);
-        } catch {
-          setUser(null);
-        }
+      if (meResult.status === 'fulfilled' && meResult.value) {
+        setUser(meResult.value);
       } else {
         setUser(null);
       }

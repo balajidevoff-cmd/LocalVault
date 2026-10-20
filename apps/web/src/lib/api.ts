@@ -361,14 +361,31 @@ class ApiClient {
       headers.set('Content-Type', 'application/json');
     }
 
+    let controller: AbortController | null = null;
+    let timeoutId: any = null;
+    let signal = options.signal;
+
+    if (!signal && !endpoint.includes('/upload')) {
+      controller = new AbortController();
+      signal = controller.signal;
+      timeoutId = setTimeout(() => controller?.abort(), 20000);
+    }
+
     let res: Response;
     try {
       res = await fetch(url, {
         ...options,
+        signal,
         headers,
         credentials: 'include',
       });
     } catch (netErr: any) {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (netErr?.name === 'AbortError') {
+        throw new Error(
+          `Request to LocalVault server timed out. Check that your laptop is awake, FastAPI is running on port 8000, and your tunnel is active.`
+        );
+      }
       if (
         netErr instanceof TypeError &&
         (netErr.message.includes('fetch') || netErr.message.includes('NetworkError') || netErr.message.includes('Failed to fetch'))
@@ -378,6 +395,8 @@ class ApiClient {
         );
       }
       throw netErr;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
 
     // Automatic token refresh on 401 Unauthorized
@@ -420,7 +439,13 @@ class ApiClient {
 
   // Health
   async checkHealth(): Promise<HealthResponse> {
-    return this.request<HealthResponse>('/health');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      return await this.request<HealthResponse>('/health', { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // Auth
