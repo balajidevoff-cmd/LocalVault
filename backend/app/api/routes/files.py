@@ -73,7 +73,7 @@ def download_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    file_item = file_service.get_file(db, current_user, file_id)
+    file_item = file_service.get_file(db, current_user, file_id, required_permission="download")
     return file_service.build_file_stream_response(
         file_item=file_item,
         range_header=range,
@@ -87,7 +87,7 @@ def preview_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    file_item = file_service.get_file(db, current_user, file_id)
+    file_item = file_service.get_file(db, current_user, file_id, required_permission="preview")
     return file_service.build_file_stream_response(
         file_item=file_item,
         range_header=range,

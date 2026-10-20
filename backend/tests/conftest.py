@@ -41,6 +41,7 @@ def client(test_db_session, temp_storage, monkeypatch):
     monkeypatch.setattr("app.services.storage_service.storage_engine", test_storage)
     monkeypatch.setattr("app.services.file_service.storage_engine", test_storage)
     monkeypatch.setattr("app.services.folder_service.storage_engine", test_storage)
+    monkeypatch.setattr("app.api.routes.admin.storage_engine", test_storage)
     monkeypatch.setattr("app.main.storage_engine", test_storage)
 
     def override_get_db():

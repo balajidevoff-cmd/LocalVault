@@ -87,6 +87,86 @@ export interface ShareResponse {
   created_at: string;
   share_url?: string | null;
   raw_token?: string | null;
+  shared_with_user_id?: string | null;
+  shared_with_username?: string | null;
+  file_name?: string | null;
+}
+
+export interface SharedWithMeItem {
+  share_id: string;
+  file_id: string;
+  file_name: string;
+  size_bytes: number;
+  mime_type: string;
+  owner_id: string;
+  owner_username: string;
+  permission: 'view' | 'download';
+  created_at: string;
+  expires_at?: string | null;
+}
+
+export interface AdminFileItem {
+  id: string;
+  original_name: string;
+  size_bytes: number;
+  mime_type: string;
+  owner_id: string;
+  owner_username: string;
+  owner_email: string;
+  is_deleted: boolean;
+  is_starred: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminFileListResponse {
+  items: AdminFileItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface AdminUserItem {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  used_storage_bytes: number;
+  quota_bytes: number;
+  file_count: number;
+  created_at: string;
+}
+
+export interface AdminAuditLogItem {
+  id: string;
+  admin_id?: string | null;
+  admin_username: string;
+  target_user_id?: string | null;
+  target_username?: string | null;
+  file_id?: string | null;
+  filename: string;
+  action: string;
+  result: string;
+  details?: string | null;
+  timestamp: string;
+}
+
+export interface AdminDeleteResponse {
+  file_id: string;
+  filename: string;
+  owner_username: string;
+  action: string;
+  message: string;
+}
+
+export interface AdminStatsResponse {
+  total_users: number;
+  total_files: number;
+  total_storage_bytes: number;
+  disk_free_bytes: number;
+  disk_total_bytes: number;
 }
 
 export interface PublicShareMetadata {

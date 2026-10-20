@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Share2, X, Copy, Check, Lock, Clock, Loader2 } from 'lucide-react';
+import { Share2, X, Copy, Check, Lock, Clock, Loader2, UserPlus, Globe } from 'lucide-react';
 import { api } from '@/lib/api';
 import { FileItem, ShareResponse } from '@/types';
 import { useToast } from '@/context/ToastContext';
@@ -13,9 +13,11 @@ interface ShareModalProps {
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, file }) => {
+  const [tab, setTab] = useState<'public' | 'user'>('public');
   const [permission, setPermission] = useState<'view' | 'download'>('view');
   const [password, setPassword] = useState('');
   const [expiryHours, setExpiryHours] = useState<number | undefined>(undefined);
+  const [targetUser, setTargetUser] = useState('');
   const [createdShare, setCreatedShare] = useState<ShareResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,7 +25,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, file })
 
   if (!isOpen || !file) return null;
 
-  const handleCreateShare = async (e: React.FormEvent) => {
+  const handleCreatePublicShare = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
@@ -42,10 +44,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, file })
     }
   };
 
+  const handleCreateUserShare = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const target = targetUser.trim();
+    if (!target) return;
+    setLoading(true);
+    try {
+      const isEmail = target.includes('@');
+      await api.createShare({
+        file_id: file.id,
+        permission,
+        share_with_email: isEmail ? target : undefined,
+        share_with_username: !isEmail ? target : undefined,
+        expires_in_hours: expiryHours,
+      });
+      success(`File shared with ${target}`);
+      setTargetUser('');
+      onClose();
+    } catch (err: any) {
+      error(err.message || 'Failed to share file with user');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getFullShareUrl = (rawToken?: string | null) => {
     if (!rawToken) return '';
     if (typeof window !== 'undefined') {
-      return `${window.location.origin}/share/${rawToken}`;
+      const baseUrl = api.getBaseUrl();
+      const backendParam = baseUrl && !baseUrl.startsWith('/') ? `?backend=${encodeURIComponent(baseUrl)}` : '';
+      return `${window.location.origin}/share/${rawToken}${backendParam}`;
     }
     return `/share/${rawToken}`;
   };
@@ -79,6 +107,40 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, file })
           </button>
         </div>
 
+        {/* Tab Switcher */}
+        <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+          <button
+            type="button"
+            onClick={() => {
+              setTab('public');
+              setCreatedShare(null);
+            }}
+            className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition-all ${
+              tab === 'public'
+                ? 'border-vault-500 text-vault-600 dark:text-vault-400 bg-white dark:bg-slate-900'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Public Link</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTab('user');
+              setCreatedShare(null);
+            }}
+            className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 border-b-2 transition-all ${
+              tab === 'user'
+                ? 'border-vault-500 text-vault-600 dark:text-vault-400 bg-white dark:bg-slate-900'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Share with User</span>
+          </button>
+        </div>
+
         <div className="p-6">
           <div className="mb-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
             <div className="text-xs text-slate-500 dark:text-slate-400">File to share</div>
@@ -87,8 +149,86 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, file })
             </div>
           </div>
 
-          {!createdShare ? (
-            <form onSubmit={handleCreateShare} className="space-y-4">
+          {tab === 'user' ? (
+            <form onSubmit={handleCreateUserShare} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  Recipient Username or Email
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={targetUser}
+                  onChange={(e) => setTargetUser(e.target.value)}
+                  placeholder="e.g. alice or user@example.com"
+                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:border-vault-500 outline-none transition-all"
+                />
+              </div>
+
+              {/* Permission */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  Access Permission
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPermission('view')}
+                    className={`py-2 px-3 text-xs font-medium rounded-xl border text-center transition-all ${
+                      permission === 'view'
+                        ? 'border-vault-500 bg-vault-50 dark:bg-vault-500/10 text-vault-700 dark:text-vault-300 font-semibold'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    View Only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPermission('download')}
+                    className={`py-2 px-3 text-xs font-medium rounded-xl border text-center transition-all ${
+                      permission === 'download'
+                        ? 'border-vault-500 bg-vault-50 dark:bg-vault-500/10 text-vault-700 dark:text-vault-300 font-semibold'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    Allow Download
+                  </button>
+                </div>
+              </div>
+
+              {/* Optional Expiration */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Expiration</span>
+                  </div>
+                </label>
+                <select
+                  value={expiryHours || ''}
+                  onChange={(e) => setExpiryHours(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-3.5 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:border-vault-500 outline-none transition-all"
+                >
+                  <option value="">Never Expires</option>
+                  <option value="24">24 Hours</option>
+                  <option value="168">7 Days</option>
+                  <option value="720">30 Days</option>
+                </select>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-vault-600 hover:bg-vault-500 text-white text-sm font-medium shadow-md shadow-vault-600/20 transition-all active:scale-98"
+                >
+                  {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>Grant Access</span>
+                </button>
+              </div>
+            </form>
+          ) : !createdShare ? (
+            <form onSubmit={handleCreatePublicShare} className="space-y-4">
               {/* Permission */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">

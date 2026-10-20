@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import auth, files, folders, health, search, sharing, storage, users
+from app.api.routes import admin, auth, files, folders, health, search, sharing, storage, users
 from app.core.config import settings
 from app.core.logging_config import logger, setup_logging
 from app.services.storage_service import storage_engine
@@ -69,6 +69,7 @@ app.include_router(folders.router, prefix=prefix)
 app.include_router(search.router, prefix=prefix)
 app.include_router(sharing.router, prefix=prefix)
 app.include_router(storage.router, prefix=prefix)
+app.include_router(admin.router, prefix=prefix)
 
 @app.get("/")
 def root():

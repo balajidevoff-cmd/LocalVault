@@ -10,6 +10,7 @@ class ShareLink(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     file_id = Column(String(36), ForeignKey("files.id", ondelete="CASCADE"), nullable=False, index=True)
     owner_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    shared_with_user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     token_hash = Column(String(64), unique=True, nullable=False, index=True)
     permission = Column(String(20), default="view", nullable=False)  # "view" or "download"
     password_hash = Column(String(255), nullable=True)  # Optional password protection
@@ -20,4 +21,5 @@ class ShareLink(Base):
 
     # Relationships
     file = relationship("FileItem", back_populates="shares")
-    owner = relationship("User", back_populates="shares")
+    owner = relationship("User", foreign_keys=[owner_id], back_populates="shares")
+    shared_with_user = relationship("User", foreign_keys=[shared_with_user_id], back_populates="received_shares")

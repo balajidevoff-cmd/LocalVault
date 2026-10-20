@@ -1,4 +1,10 @@
 import {
+  AdminAuditLogItem,
+  AdminDeleteResponse,
+  AdminFileItem,
+  AdminFileListResponse,
+  AdminStatsResponse,
+  AdminUserItem,
   FileListResponse,
   FileItem,
   FolderItem,
@@ -6,6 +12,7 @@ import {
   PublicShareMetadata,
   SearchResults,
   ShareResponse,
+  SharedWithMeItem,
   StorageStatusResponse,
   StorageUsageResponse,
   User,
@@ -655,7 +662,14 @@ class ApiClient {
   }
 
   // Sharing
-  async createShare(data: { file_id: string; permission: 'view' | 'download'; password?: string; expires_in_hours?: number }): Promise<ShareResponse> {
+  async createShare(data: {
+    file_id: string;
+    permission: 'view' | 'download';
+    password?: string;
+    expires_in_hours?: number;
+    share_with_username?: string;
+    share_with_email?: string;
+  }): Promise<ShareResponse> {
     return this.request<ShareResponse>('/shares', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -664,6 +678,10 @@ class ApiClient {
 
   async listShares(): Promise<ShareResponse[]> {
     return this.request<ShareResponse[]>('/shares');
+  }
+
+  async listSharedWithMe(): Promise<SharedWithMeItem[]> {
+    return this.request<SharedWithMeItem[]>('/shares/shared-with-me');
   }
 
   async revokeShare(id: string): Promise<void> {
@@ -679,6 +697,50 @@ class ApiClient {
   getPublicDownloadUrl(token: string, password?: string): string {
     const pwdParam = password ? `?password=${encodeURIComponent(password)}` : '';
     return `${this.getBaseUrl()}/public/shares/${token}/download${pwdParam}`;
+  }
+
+  // Admin
+  async adminGetStats(): Promise<AdminStatsResponse> {
+    return this.request<AdminStatsResponse>('/admin/stats');
+  }
+
+  async adminListUsers(): Promise<AdminUserItem[]> {
+    return this.request<AdminUserItem[]>('/admin/users');
+  }
+
+  async adminListFiles(params?: {
+    user_id?: string;
+    deleted?: boolean;
+    query?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<AdminFileListResponse> {
+    const qp = new URLSearchParams();
+    if (params?.user_id) qp.set('user_id', params.user_id);
+    if (params?.deleted !== undefined) qp.set('deleted', String(params.deleted));
+    if (params?.query) qp.set('query', params.query);
+    if (params?.page) qp.set('page', String(params.page));
+    if (params?.page_size) qp.set('page_size', String(params.page_size));
+
+    const qs = qp.toString() ? `?${qp.toString()}` : '';
+    return this.request<AdminFileListResponse>(`/admin/files${qs}`);
+  }
+
+  async adminDeleteFile(fileId: string, permanent: boolean = false, confirmed: boolean = true): Promise<AdminDeleteResponse> {
+    return this.request<AdminDeleteResponse>(
+      `/admin/files/${fileId}?permanent=${permanent}&confirmed=${confirmed}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async adminRestoreFile(fileId: string): Promise<AdminDeleteResponse> {
+    return this.request<AdminDeleteResponse>(`/admin/files/${fileId}/restore`, {
+      method: 'POST',
+    });
+  }
+
+  async adminGetAuditLogs(limit: number = 100): Promise<AdminAuditLogItem[]> {
+    return this.request<AdminAuditLogItem[]>(`/admin/audit-logs?limit=${limit}`);
   }
 }
 

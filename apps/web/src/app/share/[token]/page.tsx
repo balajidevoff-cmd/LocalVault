@@ -1,24 +1,31 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   Cloud,
   Download,
   Lock,
   File,
-  FileText,
   AlertCircle,
+  Loader2,
+  Server,
+  Settings,
+  RefreshCw,
   Eye,
   CheckCircle2,
-  Loader2,
 } from 'lucide-react';
 import { api, formatBytes, formatDate } from '@/lib/api';
 import { PublicShareMetadata } from '@/types';
+import { useAuth } from '@/context/AuthContext';
 
-export default function PublicSharePage() {
+function PublicShareContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const token = params.token as string;
+  const backendParam = searchParams.get('backend');
+
+  const { testAndSaveServerUrl, serverUrl } = useAuth();
 
   const [metadata, setMetadata] = useState<PublicShareMetadata | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,29 +33,68 @@ export default function PublicSharePage() {
   const [password, setPassword] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
 
+  // Server URL configuration drawer state
+  const [showConfig, setShowConfig] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [configSuccess, setConfigSuccess] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  // If ?backend= is provided in the URL and differs from current base, update api client
   useEffect(() => {
-    async function loadMeta() {
-      setLoading(true);
-      setErrorMsg(null);
-      try {
-        const meta = await api.getPublicShareMetadata(token);
-        setMetadata(meta);
-        if (!meta.requires_password) {
-          setAuthenticated(true);
-        }
-      } catch (err: any) {
-        setErrorMsg(err.message || 'Share link not found or expired.');
-      } finally {
-        setLoading(false);
-      }
+    if (backendParam && backendParam.trim()) {
+      const decoded = decodeURIComponent(backendParam.trim());
+      api.setServerUrl(decoded);
     }
-    if (token) loadMeta();
-  }, [token]);
+  }, [backendParam]);
+
+  const loadMeta = async () => {
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      const meta = await api.getPublicShareMetadata(token);
+      setMetadata(meta);
+      if (!meta.requires_password) {
+        setAuthenticated(true);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Share link not found or expired.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      loadMeta();
+    }
+  }, [token, backendParam]);
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!password.trim()) return;
     setAuthenticated(true);
+  };
+
+  const handleSaveServerUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTestingConnection(true);
+    setConfigError(null);
+    setConfigSuccess(null);
+
+    const result = await testAndSaveServerUrl(customUrlInput);
+    setTestingConnection(false);
+
+    if (result.success) {
+      setConfigSuccess(`Connected to LocalVault (${result.data?.database || 'healthy'})`);
+      setTimeout(() => {
+        setShowConfig(false);
+        setConfigSuccess(null);
+        loadMeta();
+      }, 1500);
+    } else {
+      setConfigError(result.error || 'Connection failed');
+    }
   };
 
   const downloadUrl = api.getPublicDownloadUrl(token, authenticated ? password : '');
@@ -65,6 +111,17 @@ export default function PublicSharePage() {
             LocalVault Shared File
           </span>
         </div>
+
+        <button
+          onClick={() => {
+            setCustomUrlInput(api.getBaseUrl());
+            setShowConfig(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>Server Connection</span>
+        </button>
       </header>
 
       {/* Main Container */}
@@ -81,6 +138,26 @@ export default function PublicSharePage() {
             </div>
             <h2 className="text-base font-bold mb-2">Link Unavailable</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">{errorMsg}</p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={loadMeta}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-medium text-xs shadow-md transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Connection</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCustomUrlInput(api.getBaseUrl());
+                  setShowConfig(true);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs transition-colors"
+              >
+                Configure Server URL
+              </button>
+            </div>
           </div>
         ) : metadata ? (
           <div className="max-w-lg w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-8 backdrop-blur-xl">
@@ -95,6 +172,11 @@ export default function PublicSharePage() {
               <div className="text-xs text-slate-400 mt-1">
                 {formatBytes(metadata.size_bytes)} &bull; {metadata.mime_type}
               </div>
+              {metadata.expires_at && (
+                <div className="text-[11px] text-amber-500 mt-1">
+                  Expires {formatDate(metadata.expires_at)}
+                </div>
+              )}
             </div>
 
             {/* Password required prompt */}
@@ -129,22 +211,44 @@ export default function PublicSharePage() {
               </form>
             ) : (
               <div className="space-y-4">
-                <a
-                  href={downloadUrl}
-                  download={metadata.filename}
-                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-semibold text-sm shadow-lg shadow-vault-600/25 transition-all active:scale-[0.98]"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download File ({formatBytes(metadata.size_bytes)})</span>
-                </a>
+                {metadata.permission === 'download' ? (
+                  <a
+                    href={downloadUrl}
+                    download={metadata.filename}
+                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-semibold text-sm shadow-lg shadow-vault-600/25 transition-all active:scale-[0.98]"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download File ({formatBytes(metadata.size_bytes)})</span>
+                  </a>
+                ) : (
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-center text-xs text-slate-500 dark:text-slate-400">
+                    This file is shared for viewing only.
+                  </div>
+                )}
 
-                {metadata.permission === 'view' && metadata.mime_type.startsWith('image/') && (
+                {metadata.mime_type.startsWith('image/') && (
                   <div className="mt-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden p-2 bg-slate-50 dark:bg-slate-950">
                     <img
                       src={downloadUrl}
                       alt={metadata.filename}
-                      className="max-h-60 mx-auto object-contain rounded-lg"
+                      className="max-h-72 mx-auto object-contain rounded-lg"
                     />
+                  </div>
+                )}
+
+                {metadata.mime_type.startsWith('video/') && (
+                  <div className="mt-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden p-2 bg-slate-50 dark:bg-slate-950">
+                    <video
+                      controls
+                      src={downloadUrl}
+                      className="max-h-72 w-full mx-auto rounded-lg"
+                    />
+                  </div>
+                )}
+
+                {metadata.mime_type.startsWith('audio/') && (
+                  <div className="mt-4 p-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <audio controls src={downloadUrl} className="w-full" />
                   </div>
                 )}
               </div>
@@ -152,6 +256,77 @@ export default function PublicSharePage() {
           </div>
         ) : null}
       </main>
+
+      {/* Server Configuration Modal */}
+      {showConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6">
+            <h3 className="font-semibold text-sm text-slate-900 dark:text-slate-100 mb-2 flex items-center gap-2">
+              <Server className="w-4 h-4 text-vault-500" />
+              Configure LocalVault Server
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+              Enter the active HTTPS URL of your LocalVault server or Cloudflare Tunnel:
+            </p>
+
+            <form onSubmit={handleSaveServerUrl} className="space-y-4">
+              <input
+                type="text"
+                required
+                value={customUrlInput}
+                onChange={(e) => setCustomUrlInput(e.target.value)}
+                placeholder="https://your-tunnel.trycloudflare.com/api/v1"
+                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 outline-none focus:border-vault-500"
+              />
+
+              {configError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-500">
+                  {configError}
+                </div>
+              )}
+
+              {configSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{configSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowConfig(false)}
+                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={testingConnection}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-vault-600 hover:bg-vault-500 text-white font-medium shadow-sm transition-all"
+                >
+                  {testingConnection && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Test & Save</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function PublicSharePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#070b14]">
+          <Loader2 className="w-8 h-8 animate-spin text-vault-500" />
+        </div>
+      }
+    >
+      <PublicShareContent />
+    </Suspense>
   );
 }

@@ -13,6 +13,7 @@ from app.core.logging_config import logger
 from app.core.security import sanitize_filename
 from app.models.file import FileItem
 from app.models.folder import Folder
+from app.models.share import ShareLink
 from app.models.user import User
 from app.schemas.file import FileListResponse, FileResponse, FileUpdateRequest
 from app.schemas.storage import FileTypeDistribution, StorageUsageResponse
@@ -110,17 +111,67 @@ class FileService:
         return FileResponse.model_validate(file_item)
 
     @staticmethod
-    def get_file(db: Session, user: User, file_id: str) -> FileItem:
-        file_item = db.query(FileItem).filter(
-            FileItem.id == file_id,
-            FileItem.owner_id == user.id
-        ).first()
+    def get_file(db: Session, user: User, file_id: str, required_permission: str = "read") -> FileItem:
+        file_item = db.query(FileItem).filter(FileItem.id == file_id).first()
         if not file_item:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="File not found or access denied"
             )
-        return file_item
+
+        # 1. File owner has complete access
+        if file_item.owner_id == user.id:
+            return file_item
+
+        # 2. Administrator has access
+        if getattr(user, "role", None) == "admin":
+            return file_item
+
+        # 3. Check cross-user share
+        now = datetime.now(timezone.utc)
+        share = db.query(ShareLink).filter(
+            ShareLink.file_id == file_id,
+            ShareLink.shared_with_user_id == user.id,
+            ShareLink.revoked_at == None
+        ).first()
+
+        if share:
+            if share.expires_at:
+                exp = share.expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp < now:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Shared link has expired"
+                    )
+
+            if file_item.is_deleted:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="File not found or has been deleted by owner"
+                )
+
+            # Check permissions
+            if required_permission in ("write", "delete"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Recipients cannot modify or delete shared files"
+                )
+
+            if required_permission == "download" and share.permission == "view":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Permission denied: this file is shared for viewing only"
+                )
+
+            return file_item
+
+        # 4. Access denied
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or access denied"
+        )
 
     @staticmethod
     def list_files(
@@ -178,7 +229,7 @@ class FileService:
 
     @staticmethod
     def update_file(db: Session, user: User, file_id: str, req: FileUpdateRequest) -> FileResponse:
-        file_item = FileService.get_file(db, user, file_id)
+        file_item = FileService.get_file(db, user, file_id, required_permission="write")
 
         if req.original_name is not None:
             clean_name = sanitize_filename(req.original_name)
@@ -229,7 +280,7 @@ class FileService:
     @staticmethod
     def purge_file(db: Session, user: User, file_id: str) -> None:
         """Permanently purges a file and deletes its physical content from disk."""
-        file_item = FileService.get_file(db, user, file_id)
+        file_item = FileService.get_file(db, user, file_id, required_permission="delete")
         
         # Physically delete
         storage_engine.delete_physical_file(file_item.internal_storage_key)

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user, share_limiter
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.share import PublicShareMetadata, ShareCreateRequest, ShareResponse
+from app.schemas.share import PublicShareMetadata, ShareCreateRequest, ShareResponse, SharedWithMeItem
 from app.services.sharing_service import sharing_service
 
 router = APIRouter(tags=["Sharing"])
@@ -24,6 +24,13 @@ def list_shares(
     db: Session = Depends(get_db)
 ):
     return sharing_service.list_user_shares(db, current_user)
+
+@router.get("/shares/shared-with-me", response_model=List[SharedWithMeItem])
+def list_shared_with_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return sharing_service.list_shared_with_me(db, current_user)
 
 @router.delete("/shares/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_share(

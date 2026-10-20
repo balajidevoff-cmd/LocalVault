@@ -17,6 +17,7 @@ import {
   Cloud,
   FolderPlus,
   Upload,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, formatBytes } from '@/lib/api';
@@ -59,9 +60,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { label: 'My Files', href: '/files', icon: FolderClosed },
     { label: 'Recent', href: '/recent', icon: Clock },
     { label: 'Starred', href: '/starred', icon: Star },
-    { label: 'Shared Links', href: '/shares', icon: Share2 },
+    { label: 'Shared Files', href: '/shares', icon: Share2 },
     { label: 'Trash', href: '/trash', icon: Trash2 },
     { label: 'Storage', href: '/storage', icon: PieChart },
+    ...(user?.role === 'admin' ? [{ label: 'Admin Panel', href: '/admin', icon: ShieldCheck }] : []),
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
 

@@ -22,4 +22,5 @@ class User(Base):
     files = relationship("FileItem", back_populates="owner", cascade="all, delete-orphan")
     folders = relationship("Folder", back_populates="owner", cascade="all, delete-orphan")
     refresh_sessions = relationship("RefreshSession", back_populates="user", cascade="all, delete-orphan")
-    shares = relationship("ShareLink", back_populates="owner", cascade="all, delete-orphan")
+    shares = relationship("ShareLink", foreign_keys="[ShareLink.owner_id]", back_populates="owner", cascade="all, delete-orphan")
+    received_shares = relationship("ShareLink", foreign_keys="[ShareLink.shared_with_user_id]", back_populates="shared_with_user", cascade="all, delete-orphan")
