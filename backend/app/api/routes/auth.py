@@ -18,14 +18,24 @@ from app.services.auth_service import auth_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    is_prod = (settings.ENVIRONMENT == "production")
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str, request: Optional[Request] = None) -> None:
+    is_secure = (settings.ENVIRONMENT == "production")
+    if request:
+        scheme = request.url.scheme
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if scheme == "https" or forwarded_proto == "https":
+            is_secure = True
+    
+    # SameSite=None is required for cross-origin cookies between Vercel and remote backend over HTTPS.
+    # RFC specification requires Secure=True when SameSite=None.
+    samesite = "none" if is_secure else "lax"
+
     response.set_cookie(
         key="localvault_access_token",
         value=access_token,
         httponly=True,
-        secure=is_prod,
-        samesite="lax",
+        secure=is_secure,
+        samesite=samesite,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/"
     )
@@ -33,15 +43,22 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         key="localvault_refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=is_prod,
-        samesite="lax",
+        secure=is_secure,
+        samesite=samesite,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         path="/"
     )
 
-def clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie(key="localvault_access_token", path="/")
-    response.delete_cookie(key="localvault_refresh_token", path="/")
+def clear_auth_cookies(response: Response, request: Optional[Request] = None) -> None:
+    is_secure = (settings.ENVIRONMENT == "production")
+    if request:
+        scheme = request.url.scheme
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if scheme == "https" or forwarded_proto == "https":
+            is_secure = True
+    samesite = "none" if is_secure else "lax"
+    response.delete_cookie(key="localvault_access_token", path="/", secure=is_secure, samesite=samesite)
+    response.delete_cookie(key="localvault_refresh_token", path="/", secure=is_secure, samesite=samesite)
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
@@ -67,7 +84,7 @@ def login(
         ip_address=ip_address
     )
     
-    set_auth_cookies(response, access_token, refresh_token)
+    set_auth_cookies(response, access_token, refresh_token, request=request)
 
     return TokenResponse(
         access_token=access_token,
@@ -79,6 +96,7 @@ def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh_token(
+    request: Request,
     response: Response,
     body: Optional[RefreshTokenRequest] = None,
     localvault_refresh_token: Optional[str] = Cookie(None),
@@ -94,7 +112,7 @@ def refresh_token(
         return Response(status_code=status.HTTP_401_UNAUTHORIZED, content="Missing refresh token")
 
     user, new_access_token, new_refresh_token = auth_service.refresh_access_token(db, raw_refresh)
-    set_auth_cookies(response, new_access_token, new_refresh_token)
+    set_auth_cookies(response, new_access_token, new_refresh_token, request=request)
 
     return TokenResponse(
         access_token=new_access_token,
@@ -106,6 +124,7 @@ def refresh_token(
 
 @router.post("/logout")
 def logout(
+    request: Request,
     response: Response,
     body: Optional[RefreshTokenRequest] = None,
     localvault_refresh_token: Optional[str] = Cookie(None),
@@ -114,7 +133,7 @@ def logout(
     token_to_revoke = (body.refresh_token if body else None) or localvault_refresh_token
     if token_to_revoke:
         auth_service.revoke_session(db, token_to_revoke)
-    clear_auth_cookies(response)
+    clear_auth_cookies(response, request=request)
     return {"message": "Logged out successfully"}
 
 @router.get("/me", response_model=UserResponse)

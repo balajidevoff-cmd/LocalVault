@@ -48,8 +48,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ isOpen, onCl
 
     if (isText && file.size_bytes < 2 * 1024 * 1024) {
       setLoadingText(true);
-      fetch(api.getFilePreviewUrl(file.id), { credentials: 'include' })
-        .then((res) => res.text())
+      const token = api.getToken();
+      const headers = new Headers();
+      if (token) headers.set('Authorization', `Bearer ${token}`);
+      fetch(api.getFilePreviewUrl(file.id), { headers, credentials: 'include' })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return res.text();
+        })
         .then((txt) => setTextContent(txt))
         .catch(() => setTextContent('Failed to load text content.'))
         .finally(() => setLoadingText(false));

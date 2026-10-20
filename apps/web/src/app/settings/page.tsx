@@ -61,44 +61,32 @@ export default function SettingsPage() {
     }
   };
 
-  const loadAdminUsers = async () => {
+  const loadAdminUsers = React.useCallback(async () => {
     if (user?.role !== 'admin') return;
     setLoadingUsers(true);
     try {
-      // Direct request to /users
-      const res = await fetch('/api/v1/users', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setUsersList(data);
-      }
-    } catch (err) {
-      console.error(err);
+      const data = await api.getUsers();
+      setUsersList(data);
+    } catch (err: any) {
+      error(err.message || 'Failed to load user accounts');
     } finally {
       setLoadingUsers(false);
     }
-  };
+  }, [user?.role, error]);
 
   useEffect(() => {
     if (activeTab === 'admin' && user?.role === 'admin') {
       loadAdminUsers();
     }
-  }, [activeTab, user]);
+  }, [activeTab, user?.role, loadAdminUsers]);
 
   const toggleUserActive = async (targetUser: User) => {
     try {
-      const res = await fetch(`/api/v1/users/${targetUser.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: !targetUser.is_active }),
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setUsersList((prev) => prev.map((u) => (u.id === targetUser.id ? updated : u)));
-        success(`User ${updated.username} ${updated.is_active ? 'activated' : 'deactivated'}`);
-      }
+      const updated = await api.updateUser(targetUser.id, { is_active: !targetUser.is_active });
+      setUsersList((prev) => prev.map((u) => (u.id === targetUser.id ? updated : u)));
+      success(`User ${updated.username} ${updated.is_active ? 'activated' : 'deactivated'}`);
     } catch (err: any) {
-      error('Failed to update user');
+      error(err.message || 'Failed to update user');
     }
   };
 

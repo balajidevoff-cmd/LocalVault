@@ -5,10 +5,16 @@ import { useRouter, usePathname } from 'next/navigation';
 import { User, HealthResponse } from '@/types';
 import { api } from '@/lib/api';
 
+export type ServerStatus = 'checking' | 'connected' | 'unreachable' | 'unconfigured';
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   firstRunRequired: boolean;
+  serverStatus: ServerStatus;
+  serverUrl: string;
+  setServerUrl: (url: string | null) => Promise<boolean>;
+  recheckConnection: () => Promise<void>;
   darkMode: boolean;
   toggleDarkMode: () => void;
   login: (usernameOrEmail: string, pass: string) => Promise<void>;
@@ -23,6 +29,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [firstRunRequired, setFirstRunRequired] = useState<boolean>(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
+  const [serverUrl, setServerUrlState] = useState<string>('');
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const router = useRouter();
   const pathname = usePathname();
@@ -53,40 +61,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
+  const initAuth = useCallback(async () => {
+    setLoading(true);
+    const currentUrl = api.getBaseUrl();
+    setServerUrlState(currentUrl);
+
+    try {
+      const health = await api.checkHealth();
+      setServerStatus('connected');
+      if (health.first_run_setup_required) {
+        setFirstRunRequired(true);
+      } else {
+        setFirstRunRequired(false);
+      }
+
+      // Check current user session if token exists
+      if (api.getToken()) {
+        try {
+          const me = await api.getMe();
+          setUser(me);
+        } catch {
+          setUser(null);
+        }
+      } else {
+        setUser(null);
+      }
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.includes('not configured')) {
+        setServerStatus('unconfigured');
+      } else {
+        setServerStatus('unreachable');
+      }
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Check server health & auth session on mount
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
+
   const refreshUser = useCallback(async () => {
     try {
       const me = await api.getMe();
       setUser(me);
     } catch {
       setUser(null);
-      api.setToken(null);
+      api.setTokens(null, null);
     }
   }, []);
 
-  // Check server health & auth session on mount
-  useEffect(() => {
-    let mounted = true;
-    async function initAuth() {
-      setLoading(true);
+  const setServerUrl = useCallback(
+    async (url: string | null): Promise<boolean> => {
+      api.setServerUrl(url);
+      const newUrl = api.getBaseUrl();
+      setServerUrlState(newUrl);
       try {
-        const health = await api.checkHealth();
-        if (mounted && health.first_run_setup_required) {
-          setFirstRunRequired(true);
-        }
-
-        const me = await api.getMe();
-        if (mounted) setUser(me);
+        await api.checkHealth();
+        setServerStatus('connected');
+        await initAuth();
+        return true;
       } catch {
-        if (mounted) setUser(null);
-      } finally {
-        if (mounted) setLoading(false);
+        setServerStatus('unreachable');
+        return false;
       }
-    }
-    initAuth();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    },
+    [initAuth]
+  );
+
+  const recheckConnection = useCallback(async () => {
+    await initAuth();
+  }, [initAuth]);
 
   // Protect pages
   useEffect(() => {
@@ -126,6 +174,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         firstRunRequired,
+        serverStatus,
+        serverUrl,
+        setServerUrl,
+        recheckConnection,
         darkMode,
         toggleDarkMode,
         login,
