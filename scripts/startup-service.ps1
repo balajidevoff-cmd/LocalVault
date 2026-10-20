@@ -76,10 +76,14 @@ if ($existingPort) {
 
 $backendProc = $null
 if (-not $backendRunning) {
-    Write-ServiceLog "Starting FastAPI backend via Uvicorn..."
+    $backendOutLog = Join-Path $LogsDir "backend.log"
+    $backendErrLog = Join-Path $LogsDir "backend_error.log"
+
     $backendProc = Start-Process -FilePath $VenvPython `
         -ArgumentList "-m uvicorn app.main:app --host 127.0.0.1 --port $BackendPort" `
         -WorkingDirectory $BackendDir `
+        -RedirectStandardOutput $backendOutLog `
+        -RedirectStandardError $backendErrLog `
         -WindowStyle Hidden `
         -PassThru
 
@@ -137,26 +141,43 @@ if (-not $cloudflaredExe) {
     exit 0
 }
 
-# 5. Check if tunnel is already running
+# 5. Check if Cloudflared Windows Service or process is already active
+$cfService = Get-Service -Name "Cloudflared" -ErrorAction SilentlyContinue
+if ($cfService) {
+    if ($cfService.Status -ne "Running") {
+        Write-ServiceLog "Starting Cloudflared Windows Service..."
+        Start-Service -Name "Cloudflared" -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        $cfService.Refresh()
+    }
+    if ($cfService.Status -eq "Running") {
+        Write-ServiceLog "Cloudflared Windows Service is Running. Persistent tunnel is active."
+        exit 0
+    }
+}
+
 $existingTunnel = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*cloudflared*tunnel*" }
 if ($existingTunnel) {
     Write-ServiceLog "A Cloudflare Tunnel is already running (PID $($existingTunnel.ProcessId[0])). Maintaining existing tunnel connection."
     exit 0
 }
 
-# 6. Start Cloudflare Tunnel
+# 6. Start Cloudflare Tunnel if not running as service
 $tunnelProc = $null
 if (Test-Path $NamedConfigFile) {
     Write-ServiceLog "Found persistent named tunnel configuration: $NamedConfigFile"
     Write-ServiceLog "Starting persistent named tunnel..."
+    $tunnelLog = Join-Path $LogsDir "tunnel.log"
     $tunnelProc = Start-Process -FilePath $cloudflaredExe `
         -ArgumentList "tunnel --config `"$NamedConfigFile`" run" `
         -WorkingDirectory $TunnelConfigDir `
+        -RedirectStandardOutput $tunnelLog `
+        -RedirectStandardError $tunnelLog `
         -WindowStyle Hidden `
         -PassThru
     Write-ServiceLog "Named Cloudflare Tunnel started with PID $($tunnelProc.Id)."
 } elseif ($QuickTunnel) {
-    Write-ServiceLog "No named tunnel config found. Starting temporary quick tunnel to http://127.0.0.1:$BackendPort..."
+    Write-ServiceLog "Starting temporary quick tunnel to http://127.0.0.1:$BackendPort..."
     $quickLog = Join-Path $LogsDir "quick_tunnel.log"
     $tunnelProc = Start-Process -FilePath $cloudflaredExe `
         -ArgumentList "tunnel --url http://127.0.0.1:$BackendPort --logfile `"$quickLog`"" `
@@ -165,8 +186,7 @@ if (Test-Path $NamedConfigFile) {
         -PassThru
     Write-ServiceLog "Quick Cloudflare Tunnel started with PID $($tunnelProc.Id). Logs: $quickLog"
 } else {
-    Write-ServiceLog "No named tunnel configured (config/tunnel/config.yml missing). Run .\scripts\setup-tunnel.ps1 to configure a permanent hostname." "INFO"
-    Write-ServiceLog "To run a temporary tunnel instead, use: .\scripts\startup-service.ps1 -QuickTunnel" "INFO"
+    Write-ServiceLog "No named tunnel configured (config/tunnel/config.yml missing). Run .\scripts\install-remote-access.ps1 to configure a permanent hostname." "INFO"
 }
 
 Write-ServiceLog "LocalVault service startup sequence completed successfully."
