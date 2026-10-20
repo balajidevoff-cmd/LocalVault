@@ -11,6 +11,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Server,
   Settings,
   RefreshCw,
@@ -37,6 +38,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Server URL configuration drawer state
   const [showServerConfig, setShowServerConfig] = useState(false);
@@ -88,9 +91,12 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+    setAuthError(null);
 
     if (isSetupMode && password !== confirmPassword) {
-      error('Passwords do not match');
+      const msg = 'Passwords do not match';
+      setAuthError(msg);
+      error(msg);
       return;
     }
 
@@ -105,6 +111,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       const msg = err.message || 'Authentication failed';
+      setAuthError(msg);
       error(msg);
       if (msg.includes('Cannot reach') || msg.includes('not configured')) {
         setShowServerConfig(true);
@@ -264,6 +271,20 @@ export default function LoginPage() {
           </form>
         )}
 
+        {/* Auth Error Banner */}
+        {authError && (
+          <div
+            id="auth-error-banner"
+            className="mb-5 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-800 dark:text-rose-300 flex items-start gap-2.5 animate-in fade-in"
+          >
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold block">Authentication Failed</span>
+              <span className="text-[11px] leading-relaxed text-rose-700 dark:text-rose-300">{authError}</span>
+            </div>
+          </div>
+        )}
+
         {/* First Run Alert Banner */}
         {firstRunRequired && (
           <div className="mb-6 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
@@ -284,6 +305,7 @@ export default function LoginPage() {
             <div className="relative">
               <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
+                id="username-input"
                 type="text"
                 required
                 autoFocus
@@ -303,6 +325,7 @@ export default function LoginPage() {
               <div className="relative">
                 <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
+                  id="email-input"
                   type="email"
                   required
                   value={email}
@@ -321,6 +344,7 @@ export default function LoginPage() {
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
+                id="password-input"
                 type="password"
                 required
                 value={password}
@@ -339,6 +363,7 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
+                  id="confirm-password-input"
                   type="password"
                   required
                   value={confirmPassword}
@@ -351,6 +376,7 @@ export default function LoginPage() {
           )}
 
           <button
+            id="login-submit-btn"
             type="submit"
             disabled={submitting}
             className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-vault-600 hover:bg-vault-500 text-white font-medium text-sm shadow-lg shadow-vault-600/25 transition-all active:scale-[0.98] mt-2 disabled:opacity-50"
