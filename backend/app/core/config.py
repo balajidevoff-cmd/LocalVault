@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -58,6 +58,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8081",
         "exp://localhost:8081",
     ]
+    CORS_ORIGIN_REGEX: Optional[str] = r"^https:\/\/.*\.vercel\.app$"
 
     @field_validator("LOCALVAULT_STORAGE_PATH", mode="before")
     @classmethod
