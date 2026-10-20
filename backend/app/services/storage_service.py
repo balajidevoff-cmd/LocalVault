@@ -177,6 +177,18 @@ class StorageEngine:
             # Atomically place file with readable name & extension on local disk
             os.replace(str(temp_file_path), str(final_path))
 
+            # Auto-optimize MP4/MOV for instant web streaming (FastStart)
+            if final_filename.lower().endswith(('.mp4', '.mov', '.m4v')):
+                try:
+                    from qtfaststart import processor
+                    fs_tmp = str(final_path) + ".faststart"
+                    processor.process(str(final_path), fs_tmp)
+                    if os.path.exists(fs_tmp) and os.path.getsize(fs_tmp) > 0:
+                        os.replace(fs_tmp, str(final_path))
+                        logger.info(f"Optimized MP4 FastStart for '{final_filename}'")
+                except Exception as ex:
+                    logger.warning(f"Could not apply FastStart to '{final_filename}': {ex}")
+
             logger.info(f"Stored physical file: '{internal_key}' size={bytes_written} sha256={checksum[:8]}...")
             return internal_key, bytes_written, checksum, final_filename
 
