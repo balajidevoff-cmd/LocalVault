@@ -140,7 +140,7 @@ class StorageEngine:
         chunk_size = settings.STREAM_CHUNK_SIZE_BYTES
 
         try:
-            with open(temp_file_path, "wb", buffering=4 * 1024 * 1024) as f_out:
+            with open(temp_file_path, "wb", buffering=8 * 1024 * 1024) as f_out:
                 while True:
                     chunk = await upload_file.read(chunk_size)
                     if not chunk:

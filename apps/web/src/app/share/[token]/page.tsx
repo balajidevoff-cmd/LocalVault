@@ -240,6 +240,8 @@ function PublicShareContent() {
                   <div className="mt-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden p-2 bg-slate-50 dark:bg-slate-950">
                     <video
                       controls
+                      preload="auto"
+                      playsInline
                       src={downloadUrl}
                       className="max-h-72 w-full mx-auto rounded-lg"
                     />

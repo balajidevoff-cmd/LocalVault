@@ -140,6 +140,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({ isOpen, onCl
           {isVideo && (
             <video
               controls
+              preload="auto"
+              playsInline
               className="max-h-[75vh] max-w-full rounded-lg shadow-lg"
               src={previewUrl}
             >

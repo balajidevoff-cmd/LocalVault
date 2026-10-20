@@ -93,4 +93,4 @@ if (-not $cloudflaredExe) {
 Write-Host "`n[3/3] Starting Cloudflare Tunnel to http://127.0.0.1:$BackendPort..." -ForegroundColor Yellow
 Write-Host "Press CTRL+C anytime to terminate the tunnel.`n" -ForegroundColor DarkGray
 
-& $cloudflaredExe tunnel --url "http://127.0.0.1:$BackendPort"
+& $cloudflaredExe tunnel --url "http://127.0.0.1:$BackendPort" --ha-connections 4 --protocol http2

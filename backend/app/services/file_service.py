@@ -20,6 +20,14 @@ from app.schemas.storage import FileTypeDistribution, StorageUsageResponse
 from app.services.folder_service import folder_service
 from app.services.storage_service import storage_engine
 
+class HighSpeedFileResponse(FastApiFileResponse):
+    """
+    High-performance Starlette FileResponse with enlarged 2 MB streaming buffer.
+    Drastically accelerates video buffering, scrubbing, and download speeds
+    over remote HTTPS tunnels by eliminating per-chunk ASGI framing overhead.
+    """
+    chunk_size = 2 * 1024 * 1024
+
 class FileService:
     @staticmethod
     def get_user_storage_usage(db: Session, user: User) -> int:
@@ -309,10 +317,10 @@ class FileService:
         headers = {
             "Accept-Ranges": "bytes",
             "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "public, max-age=86400" if is_preview else "private, no-cache",
+            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" if is_preview else "private, no-cache",
         }
 
-        return FastApiFileResponse(
+        return HighSpeedFileResponse(
             path=str(physical_path),
             media_type=content_type,
             filename=safe_filename,

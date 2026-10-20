@@ -144,11 +144,11 @@ if (-not $tunnelActive -and $cloudflaredExe) {
         Write-Host "Starting temporary quick tunnel..." -ForegroundColor Yellow
         $quickLog = Join-Path $LogsDir "quick_tunnel.log"
         $tunnelProc = Start-Process -FilePath $cloudflaredExe `
-            -ArgumentList "tunnel --url http://127.0.0.1:$BackendPort --logfile `"$quickLog`"" `
+            -ArgumentList "tunnel --url http://127.0.0.1:$BackendPort --ha-connections 4 --protocol http2 --logfile `"$quickLog`"" `
             -WorkingDirectory $RootDir `
             -WindowStyle Hidden `
             -PassThru
-        Write-Host "Quick tunnel started with PID $($tunnelProc.Id). URL will be in $quickLog" -ForegroundColor Green
+        Write-Host "High-speed tunnel started with PID $($tunnelProc.Id). URL will be in $quickLog" -ForegroundColor Green
         $tunnelActive = $true
     } else {
         Write-Host "No active tunnel running. To configure a permanent hostname, run: .\scripts\install-remote-access.ps1" -ForegroundColor DarkYellow
@@ -176,12 +176,29 @@ if ($Web) {
 }
 
 # Display configured public endpoint if known
-$publicUrl = $null
+$publicBaseUrl = $null
+$publicApiUrl = $null
+
 if (Test-Path $TunnelInfoFile) {
     try {
         $info = Get-Content $TunnelInfoFile -Raw | ConvertFrom-Json
-        $publicUrl = $info.api_url
+        $publicBaseUrl = $info.base_url
+        $publicApiUrl = $info.api_url
     } catch { }
+}
+
+# If still null, check quick tunnel log
+if (-not $publicBaseUrl) {
+    foreach ($logP in @((Join-Path $LogsDir "test_cf.log"), (Join-Path $LogsDir "quick_tunnel.log"))) {
+        if (Test-Path $logP) {
+            $content = Get-Content $logP -Raw -ErrorAction SilentlyContinue
+            if ($content -match '(https:\/\/[a-zA-Z0-9\-]+\.trycloudflare\.com)') {
+                $publicBaseUrl = $matches[1]
+                $publicApiUrl = "$($matches[1])/api/v1"
+                break
+            }
+        }
+    }
 }
 
 Write-Host ""
@@ -190,9 +207,17 @@ Write-Host " LocalVault Server is Ready!                      " -ForegroundColor
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host " Local Health:   http://127.0.0.1:$BackendPort/api/v1/health" -ForegroundColor Cyan
 Write-Host " API Docs:       http://127.0.0.1:$BackendPort/api/docs" -ForegroundColor Cyan
-if ($publicUrl) {
-    Write-Host " Remote API:     $publicUrl" -ForegroundColor Yellow
+
+if ($publicBaseUrl) {
+    Write-Host ""
+    Write-Host "--------------------------------------------------" -ForegroundColor DarkYellow
+    Write-Host " BACKEND CONNECTION URL (Copy to Vercel):" -ForegroundColor Yellow
+    Write-Host "   $publicBaseUrl" -ForegroundColor Green
+    Write-Host " API Endpoint:" -ForegroundColor DarkGray
+    Write-Host "   $publicApiUrl" -ForegroundColor DarkGray
+    Write-Host "--------------------------------------------------" -ForegroundColor DarkYellow
 }
+
 Write-Host ""
 Write-Host " To stop LocalVault, run:                         " -ForegroundColor DarkGray
 Write-Host "   .\scripts\stop.ps1                             " -ForegroundColor Yellow

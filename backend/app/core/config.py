@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     LOCALVAULT_STORAGE_QUOTA_BYTES: int = 250 * 1024 * 1024 * 1024
     # 10 GB max upload file size
     LOCALVAULT_MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024 * 1024
-    # Chunk size for streaming uploads/downloads (1 MB)
-    STREAM_CHUNK_SIZE_BYTES: int = 1024 * 1024
+    # Chunk size for streaming uploads/downloads (4 MB for high-throughput)
+    STREAM_CHUNK_SIZE_BYTES: int = 4 * 1024 * 1024
 
     # Security & Tokens
     # Default secret for development, MUST be overridden in production
