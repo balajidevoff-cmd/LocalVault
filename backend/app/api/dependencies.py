@@ -1,7 +1,7 @@
 import time
 from collections import defaultdict
 from typing import Dict, List, Optional
-from fastapi import Cookie, Depends, Header, HTTPException, Request, status
+from fastapi import Cookie, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -42,25 +42,29 @@ share_limiter = SimpleRateLimiter(requests_per_minute=30)
 def get_current_user(
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(None),
-    access_token_cookie: Optional[str] = Cookie(None, alias="localvault_access_token")
+    access_token_cookie: Optional[str] = Cookie(None, alias="localvault_access_token"),
+    token: Optional[str] = Query(None)
 ) -> User:
     """
-    Extracts and validates JWT bearer token from Authorization header or HttpOnly cookie.
+    Extracts and validates JWT bearer token from Authorization header, query parameter, or HttpOnly cookie.
+    Allows <img>, <video>, and <iframe> elements to authenticate via ?token= query parameter.
     """
-    token = None
+    bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1].strip()
+        bearer_token = authorization.split(" ", 1)[1].strip()
+    elif token and token.strip():
+        bearer_token = token.strip()
     elif access_token_cookie:
-        token = access_token_cookie
+        bearer_token = access_token_cookie
 
-    if not token:
+    if not bearer_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-    payload = decode_access_token(token)
+    payload = decode_access_token(bearer_token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

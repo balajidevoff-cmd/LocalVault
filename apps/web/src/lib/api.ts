@@ -548,11 +548,15 @@ class ApiClient {
   }
 
   getFileDownloadUrl(id: string): string {
-    return `${this.getBaseUrl()}/files/${id}/download`;
+    const token = this.getToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${this.getBaseUrl()}/files/${id}/download${tokenParam}`;
   }
 
   getFilePreviewUrl(id: string): string {
-    return `${this.getBaseUrl()}/files/${id}/preview`;
+    const token = this.getToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${this.getBaseUrl()}/files/${id}/preview${tokenParam}`;
   }
 
   async uploadFile(file: File, folder_id?: string | null, onProgress?: (percent: number) => void): Promise<FileItem> {

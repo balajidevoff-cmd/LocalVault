@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import filetype
 from fastapi import HTTPException, Response, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse as FastApiFileResponse, StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -246,65 +246,27 @@ class FileService:
         is_preview: bool = False
     ) -> Response:
         """
-        Constructs a streaming response with proper headers, supporting Byte-Range requests.
+        Constructs high-performance file response using Starlette FileResponse.
+        Natively supports kernel sendfile, Byte-Range streaming (HTTP 206),
+        seeking, audio/video progressive buffering, and correct caching headers.
         """
-        file_size = file_item.size_bytes
-        content_type = file_item.mime_type or "application/octet-stream"
-        
-        # Content Disposition
-        disposition_type = "inline" if is_preview else "attachment"
-        # RFC 5987 encoded filename
+        physical_path = storage_engine.get_file_path(file_item.internal_storage_key)
         safe_filename = file_item.original_name.replace('"', '\\"')
+        disposition_type = "inline" if is_preview else "attachment"
+        content_type = file_item.mime_type or "application/octet-stream"
+
         headers = {
-            "Content-Disposition": f'{disposition_type}; filename="{safe_filename}"',
             "Accept-Ranges": "bytes",
             "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "public, max-age=86400" if is_preview else "private, no-cache",
         }
 
-        # Handle Range requests
-        if range_header and range_header.startswith("bytes="):
-            try:
-                ranges = range_header.replace("bytes=", "").split("-")
-                start = int(ranges[0]) if ranges[0] else 0
-                end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
-                end = min(end, file_size - 1)
-
-                if start > end or start >= file_size:
-                    raise HTTPException(
-                        status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-                        headers={"Content-Range": f"bytes */{file_size}"}
-                    )
-
-                content_length = end - start + 1
-                headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
-                headers["Content-Length"] = str(content_length)
-
-                stream = storage_engine.stream_file_chunks(
-                    file_item.internal_storage_key,
-                    start_byte=start,
-                    end_byte=end
-                )
-
-                return StreamingResponse(
-                    stream,
-                    status_code=status.HTTP_206_PARTIAL_CONTENT,
-                    headers=headers,
-                    media_type=content_type
-                )
-            except (ValueError, IndexError):
-                pass  # Fall back to full stream
-
-        headers["Content-Length"] = str(file_size)
-        stream = storage_engine.stream_file_chunks(
-            file_item.internal_storage_key,
-            start_byte=0,
-            end_byte=file_size - 1
-        )
-        return StreamingResponse(
-            stream,
-            status_code=status.HTTP_200_OK,
-            headers=headers,
-            media_type=content_type
+        return FastApiFileResponse(
+            path=str(physical_path),
+            media_type=content_type,
+            filename=safe_filename,
+            content_disposition_type=disposition_type,
+            headers=headers
         )
 
     @staticmethod
