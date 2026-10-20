@@ -1,0 +1,14 @@
+{
+  "name": "localvault-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LocalVault - Self-Hosted Personal Cloud Storage Platform",
+  "scripts": {
+    "dev": "npm --prefix apps/web run dev",
+    "build": "npm --prefix apps/web run build",
+    "lint": "npm --prefix apps/web run lint",
+    "start": "powershell -ExecutionPolicy Bypass -File ./scripts/start.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File ./scripts/stop.ps1",
+    "test": "pytest -v"
+  }
+}

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: localvault-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - LOCALVAULT_STORAGE_PATH=/data/storage
+      - LOCALVAULT_DB_PATH=/data/db/localvault.db
+      - SECRET_KEY=generate_a_secure_random_key_in_production
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    volumes:
+      # Persistent bind mounts directly on host disk (Windows/Linux SSD)
+      - ./data/storage:/data/storage
+      - ./data/db:/data/db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: localvault-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=/api/v1
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
